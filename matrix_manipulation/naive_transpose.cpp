@@ -9,12 +9,15 @@
 
 #define THREADS_PER_BLOCK 256
 
-__global__ void copy_kernel(float * in, float * out, int width, int height) {
+__global__ void transpose_kernel(float * in, float * out, int width, int height) {
     int pos_x = blockDim.x * blockIdx.x + threadIdx.x;
     int pos_y = blockDim.y * blockIdx.y + threadIdx.y;
 
+    int in_index  = pos_y * width + pos_x;
+    int out_index = pos_x * width + pos_y;
+
     if (pos_x < width && pos_y < height)
-        out[pos_y * width + pos_x] = in[pos_y * width + pos_x];
+        out[out_index] = in[in_index];
 }
 
 
@@ -49,9 +52,9 @@ int main() {
     // GPU kernel launch
     // We tile the matrix into blocks (x0,y0,x1,y1) which have an horizontal dimension and vertical dimension
     int x_tile = 32;
-    int y_tile = 32;
+    int y_tile = 32; // each tile has 64 elements
 
-    hipLaunchKernelGGL(copy_kernel,
+    hipLaunchKernelGGL(transpose_kernel,
                     dim3(WIDTH / x_tile + 1, HEIGHT / y_tile + 1),
                     dim3(x_tile, y_tile),
                     0, 0,
@@ -63,9 +66,10 @@ int main() {
     HIP_ASSERT(hipMemcpy(h_out, d_out, DATA_SIZE, hipMemcpyDeviceToHost));
 
     // validate data
-    for (int i = 0; i < WIDTH * HEIGHT; i++)
-        if (abs(h_out[i] - h_in[i]) >= 1e-5)
-            std::cout << "Error at position " << i << std::endl;
+    for (int i = 0; i < HEIGHT; i++)
+        for (int j = 0; j < WIDTH; j++)
+        if (abs(h_out[j * WIDTH + i] - h_in[i * WIDTH + j]) >= 1e-5)
+            std::cout << "Error at position " << i * WIDTH + j << std::endl;
 
     // release device memory
     HIP_ASSERT(hipFree(d_in));
